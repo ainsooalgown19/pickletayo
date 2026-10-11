@@ -1,0 +1,1 @@
+package com.tarapickle.shared.configuration; import org.springframework.context.annotation.*; import java.time.*; @Configuration public class ClockConfiguration {@Bean Clock clock(){return Clock.systemUTC();}}

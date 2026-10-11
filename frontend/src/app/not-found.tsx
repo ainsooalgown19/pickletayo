@@ -1,0 +1,1 @@
+export default function NotFound() { return <main className="hero"><h1>Court not found.</h1><p>This page may have moved or is no longer available.</p><a className="primary" href="/">Back to discovery</a></main>; }

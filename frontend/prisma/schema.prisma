@@ -1,0 +1,320 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["auth", "public"]
+}
+
+// Supabase owns this table. prisma7.config.ts marks it as external, so Prisma
+// can validate relations without creating, changing, or dropping Auth data.
+model AuthUser {
+  id                        String                   @id @db.Uuid
+  email                     String?
+  rawUserMetaData           Json?                    @map("raw_user_meta_data")
+  profile                   Profile?
+  roles                     UserRole[]
+  consents                  ConsentRecord[]
+  securityEvents            SecurityEvent[]
+  ownedOrganizations        Organization[]           @relation("OrganizationOwner")
+  organizationMemberships   OrganizationMember[]
+  createdAvailabilityBlocks CourtAvailabilityBlock[]
+  bookings                  CourtBooking[]
+  bookingHistoryChanges     BookingStatusHistory[]
+  notificationPreference    NotificationPreference?
+  notificationOutbox        NotificationOutbox[]
+
+  @@map("users")
+  @@schema("auth")
+}
+
+model NotificationPreference {
+  userId           String   @id @map("user_id") @db.Uuid
+  bookingUpdates   Boolean  @default(true) @map("booking_updates")
+  accountSecurity  Boolean  @default(true) @map("account_security")
+  productNews      Boolean  @default(false) @map("product_news")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  user             AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("notification_preferences")
+  @@schema("public")
+}
+
+model NotificationOutbox {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String?   @map("user_id") @db.Uuid
+  recipientEmail    String    @map("recipient_email")
+  templateKey       String    @map("template_key")
+  subject           String
+  htmlBody          String    @map("html_body")
+  textBody          String    @map("text_body")
+  payload           Json      @default(dbgenerated("'{}'::jsonb"))
+  status            String    @default("PENDING")
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastError         String?   @map("last_error")
+  providerMessageId String?   @map("provider_message_id")
+  idempotencyKey    String    @unique @map("idempotency_key")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  user              AuthUser? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([status, nextAttemptAt])
+  @@map("notification_outbox")
+  @@schema("public")
+}
+
+model Organization {
+  id          String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type        String               @map("organization_type")
+  legalName   String               @map("legal_name")
+  displayName String               @map("display_name")
+  status      String               @default("ACTIVE")
+  ownerUserId String               @map("owner_user_id") @db.Uuid
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime             @default(now()) @map("updated_at") @db.Timestamptz(6)
+  owner       AuthUser             @relation("OrganizationOwner", fields: [ownerUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  members     OrganizationMember[]
+  facilities  Facility[]
+  bookings    CourtBooking[]
+
+  @@map("organizations")
+  @@schema("public")
+}
+
+model OrganizationMember {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  roleCode       String       @map("role_code")
+  status         String       @default("ACTIVE")
+  joinedAt       DateTime?    @map("joined_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user           AuthUser     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+  @@schema("public")
+}
+
+model Facility {
+  id             String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  name           String                   @map("facility_name")
+  branchCode     String                   @map("branch_code")
+  description    String?
+  status         String                   @default("DRAFT") @map("facility_status")
+  contactNumber  String?                  @map("contact_number")
+  contactEmail   String?                  @map("contact_email")
+  timezone       String                   @default("Asia/Manila")
+  createdAt      DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  location       FacilityLocation?
+  courts         Court[]
+  operatingHours FacilityOperatingHours[]
+  bookings       CourtBooking[]
+
+  @@unique([organizationId, branchCode])
+  @@map("facilities")
+  @@schema("public")
+}
+
+model FacilityLocation {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facilityId         String   @unique @map("facility_id") @db.Uuid
+  addressLine1       String   @map("address_line_1")
+  addressLine2       String?  @map("address_line_2")
+  barangay           String?
+  city               String   @map("city_municipality")
+  province           String
+  postalCode         String?  @map("postal_code")
+  countryCode        String   @default("PH") @map("country_code") @db.Char(2)
+  latitude           Decimal  @db.Decimal(9, 6)
+  longitude          Decimal  @db.Decimal(9, 6)
+  directionsLandmark String?  @map("directions_landmark")
+  verified           Boolean  @default(false) @map("is_verified")
+  facility           Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("facility_locations")
+  @@schema("public")
+}
+
+model FacilityOperatingHours {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facilityId String    @map("facility_id") @db.Uuid
+  dayOfWeek  Int       @map("day_of_week") @db.SmallInt
+  opensAt    DateTime? @map("opens_at") @db.Time(0)
+  closesAt   DateTime? @map("closes_at") @db.Time(0)
+  closed     Boolean   @default(false) @map("is_closed")
+  facility   Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([facilityId, dayOfWeek])
+  @@map("facility_operating_hours")
+  @@schema("public")
+}
+
+model Court {
+  id                 String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  facilityId         String                   @map("facility_id") @db.Uuid
+  code               String                   @map("court_code")
+  name               String                   @map("court_name")
+  type               String                   @map("court_type")
+  surfaceType        String                   @map("surface_type")
+  status             String                   @default("ACTIVE") @map("court_status")
+  lighting           Boolean                  @default(false) @map("has_lighting")
+  baseHourlyRate     Decimal                  @map("base_hourly_rate") @db.Decimal(12, 2)
+  currencyCode       String                   @default("PHP") @map("currency_code") @db.Char(3)
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                 @default(now()) @map("updated_at") @db.Timestamptz(6)
+  facility           Facility                 @relation(fields: [facilityId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rateRules          CourtRateRule[]
+  availabilityBlocks CourtAvailabilityBlock[]
+  bookings           CourtBooking[]
+
+  @@unique([facilityId, code])
+  @@map("courts")
+  @@schema("public")
+}
+
+model CourtRateRule {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courtId        String    @map("court_id") @db.Uuid
+  name           String    @map("rule_name")
+  dayOfWeek      Int?      @map("day_of_week") @db.SmallInt
+  startsAt       DateTime? @map("starts_at") @db.Time(0)
+  endsAt         DateTime? @map("ends_at") @db.Time(0)
+  hourlyRate     Decimal   @map("hourly_rate") @db.Decimal(12, 2)
+  effectiveFrom  DateTime? @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  priority       Int       @default(0)
+  active         Boolean   @default(true)
+  court          Court     @relation(fields: [courtId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("court_rate_rules")
+  @@schema("public")
+}
+
+model CourtAvailabilityBlock {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  courtId         String   @map("court_id") @db.Uuid
+  type            String   @map("block_type")
+  startsAt        DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt          DateTime @map("ends_at") @db.Timestamptz(6)
+  reason          String?
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  court           Court    @relation(fields: [courtId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createdBy       AuthUser @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@map("court_availability_blocks")
+  @@schema("public")
+}
+
+model CourtBooking {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                 @map("organization_id") @db.Uuid
+  reference      String                 @unique @map("booking_reference")
+  facilityId     String                 @map("facility_id") @db.Uuid
+  courtId        String                 @map("court_id") @db.Uuid
+  bookedByUserId String                 @map("booked_by_user_id") @db.Uuid
+  startsAt       DateTime               @map("booking_start") @db.Timestamptz(6)
+  endsAt         DateTime               @map("booking_end") @db.Timestamptz(6)
+  status         String                 @map("booking_status")
+  subtotalAmount Decimal                @map("subtotal_amount") @db.Decimal(12, 2)
+  discountAmount Decimal                @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal                @map("total_amount") @db.Decimal(12, 2)
+  currencyCode   String                 @default("PHP") @map("currency_code") @db.Char(3)
+  paymentStatus  String                 @default("UNPAID") @map("payment_status")
+  idempotencyKey String?                @map("idempotency_key")
+  holdExpiresAt  DateTime?              @map("hold_expires_at") @db.Timestamptz(6)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime               @default(now()) @map("updated_at") @db.Timestamptz(6)
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  facility       Facility               @relation(fields: [facilityId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  court          Court                  @relation(fields: [courtId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bookedBy       AuthUser               @relation(fields: [bookedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  history        BookingStatusHistory[]
+
+  @@unique([bookedByUserId, idempotencyKey])
+  @@map("court_bookings")
+  @@schema("public")
+}
+
+model BookingStatusHistory {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bookingId       String       @map("booking_id") @db.Uuid
+  fromStatus      String?      @map("from_status")
+  toStatus        String       @map("to_status")
+  changedByUserId String?      @map("changed_by_user_id") @db.Uuid
+  reason          String?
+  changedAt       DateTime     @default(now()) @map("changed_at") @db.Timestamptz(6)
+  booking         CourtBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  changedBy       AuthUser?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@map("booking_status_history")
+  @@schema("public")
+}
+
+model Profile {
+  userId     String   @id @map("user_id") @db.Uuid
+  givenName  String   @default("") @map("given_name")
+  familyName String   @default("") @map("family_name")
+  status     String   @default("ACTIVE")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  user       AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("profiles")
+  @@schema("public")
+}
+
+model ApplicationRole {
+  code        String     @id
+  description String
+  userRoles   UserRole[]
+
+  @@map("application_roles")
+  @@schema("public")
+}
+
+model UserRole {
+  userId    String          @map("user_id") @db.Uuid
+  roleCode  String          @map("role_code")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  role      ApplicationRole @relation(fields: [roleCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  user      AuthUser        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([userId, roleCode])
+  @@map("user_roles")
+  @@schema("public")
+}
+
+model ConsentRecord {
+  consentId   String   @id @default(dbgenerated("gen_random_uuid()")) @map("consent_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  consentType String   @map("consent_type")
+  version     String
+  acceptedAt  DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
+  user        AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([userId, consentType, version])
+  @@map("consent_records")
+  @@schema("public")
+}
+
+model SecurityEvent {
+  eventId   String    @id @default(dbgenerated("gen_random_uuid()")) @map("event_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  eventType String    @map("event_type")
+  metadata  Json      @default(dbgenerated("'{}'::jsonb"))
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user      AuthUser? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@map("security_events")
+  @@schema("public")
+}

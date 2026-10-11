@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tarapickle}
+      POSTGRES_USER: ${POSTGRES_USER:-tarapickle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tarapickle_local}
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U tarapickle"], interval: 5s, timeout: 3s, retries: 10}
+    volumes: [tarapickle-postgres:/var/lib/postgresql/data]
+volumes: {tarapickle-postgres: {}}

@@ -1,0 +1,14 @@
+CREATE TABLE users (id uuid PRIMARY KEY, email varchar(320) NOT NULL, given_name varchar(100) NOT NULL, family_name varchar(100) NOT NULL, status varchar(32) NOT NULL, email_verified_at timestamptz, created_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, version bigint NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX uq_users_email_ci ON users (lower(email));
+CREATE TABLE user_credentials (user_id uuid PRIMARY KEY REFERENCES users(id), password_hash varchar(255) NOT NULL, password_changed_at timestamptz NOT NULL, version bigint NOT NULL DEFAULT 0);
+CREATE TABLE roles (id uuid PRIMARY KEY, code varchar(40) UNIQUE NOT NULL, description varchar(255) NOT NULL);
+CREATE TABLE permissions (id uuid PRIMARY KEY, code varchar(80) UNIQUE NOT NULL, description varchar(255) NOT NULL);
+CREATE TABLE user_roles (user_id uuid REFERENCES users(id), role_id uuid REFERENCES roles(id), PRIMARY KEY(user_id,role_id));
+CREATE TABLE role_permissions (role_id uuid REFERENCES roles(id), permission_id uuid REFERENCES permissions(id), PRIMARY KEY(role_id,permission_id));
+CREATE TABLE user_sessions (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), refresh_token_hash varchar(64) NOT NULL, previous_token_hash varchar(64), token_family_id uuid NOT NULL, created_at timestamptz NOT NULL, expires_at timestamptz NOT NULL, last_used_at timestamptz NOT NULL, revoked_at timestamptz, user_agent varchar(500), ip_address varchar(64), version bigint NOT NULL DEFAULT 0);
+CREATE INDEX idx_sessions_user ON user_sessions(user_id); CREATE UNIQUE INDEX uq_sessions_refresh ON user_sessions(refresh_token_hash);
+CREATE TABLE email_verification_tokens (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), token_hash varchar(64) UNIQUE NOT NULL, expires_at timestamptz NOT NULL, used_at timestamptz, created_at timestamptz NOT NULL, version bigint NOT NULL DEFAULT 0);
+CREATE TABLE password_reset_tokens (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), token_hash varchar(64) UNIQUE NOT NULL, expires_at timestamptz NOT NULL, used_at timestamptz, created_at timestamptz NOT NULL, version bigint NOT NULL DEFAULT 0);
+CREATE TABLE consent_records (id uuid PRIMARY KEY, user_id uuid NOT NULL REFERENCES users(id), consent_type varchar(40) NOT NULL, document_version varchar(40) NOT NULL, accepted_at timestamptz NOT NULL);
+CREATE TABLE security_events (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id), session_id uuid, event_type varchar(60) NOT NULL, outcome varchar(20) NOT NULL, occurred_at timestamptz NOT NULL, ip_address varchar(64), metadata varchar(1000));
+CREATE INDEX idx_security_events_user ON security_events(user_id,occurred_at); CREATE INDEX idx_verification_hash ON email_verification_tokens(token_hash); CREATE INDEX idx_reset_hash ON password_reset_tokens(token_hash);

@@ -1,0 +1,2 @@
+package com.tarapickle.support; import org.springframework.boot.testcontainers.service.connection.ServiceConnection; import org.testcontainers.containers.PostgreSQLContainer; import org.testcontainers.junit.jupiter.*;
+@Testcontainers public abstract class PostgreSqlContainerSupport {@Container @ServiceConnection protected static final PostgreSQLContainer<?> POSTGRES=new PostgreSQLContainer<>("postgres:16-alpine");}

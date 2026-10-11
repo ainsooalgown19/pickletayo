@@ -1,0 +1,7 @@
+package com.tarapickle.identity.domain.model;
+import jakarta.persistence.*; import lombok.*; import java.time.*; import java.util.*;
+@Entity @Table(name="user_sessions") @Getter @NoArgsConstructor(access=AccessLevel.PROTECTED)
+public class UserSession { @Id private UUID id; @Column(name="user_id",nullable=false) private UUID userId; @Column(name="refresh_token_hash",nullable=false,length=64) private String refreshTokenHash; @Column(name="previous_token_hash",length=64) private String previousTokenHash; @Column(name="token_family_id",nullable=false) private UUID tokenFamilyId; @Column(name="created_at",nullable=false) private Instant createdAt; @Column(name="expires_at",nullable=false) private Instant expiresAt; @Column(name="last_used_at",nullable=false) private Instant lastUsedAt; @Column(name="revoked_at") private Instant revokedAt; @Column(name="user_agent",length=500) private String userAgent; @Column(name="ip_address",length=64) private String ipAddress; @Version private long version;
+ public UserSession(UUID id,UUID uid,String hash,Instant now,Instant expires,String agent,String ip){this.id=id;userId=uid;refreshTokenHash=hash;tokenFamilyId=UUID.randomUUID();createdAt=now;lastUsedAt=now;expiresAt=expires;userAgent=agent;ipAddress=ip;}
+ public boolean active(Instant now){return revokedAt==null&&expiresAt.isAfter(now);} public void rotate(String hash,Instant now){previousTokenHash=refreshTokenHash;refreshTokenHash=hash;lastUsedAt=now;} public void revoke(Instant now){if(revokedAt==null)revokedAt=now;}
+}

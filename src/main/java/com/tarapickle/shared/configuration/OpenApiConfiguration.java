@@ -1,0 +1,2 @@
+package com.tarapickle.shared.configuration; import io.swagger.v3.oas.models.*; import io.swagger.v3.oas.models.info.*; import io.swagger.v3.oas.models.security.*; import org.springframework.context.annotation.*;
+@Configuration public class OpenApiConfiguration {@Bean OpenAPI api(){return new OpenAPI().openapi("3.1.0").info(new Info().title("PickleTayo API").version("v1").description("Identity and Access API")).components(new Components().addSecuritySchemes("bearerAuth",new SecurityScheme().type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT")));}}

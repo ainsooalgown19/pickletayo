@@ -1,0 +1,8 @@
+package com.tarapickle.identity.api;
+import jakarta.validation.constraints.*; import java.time.*; import java.util.*;
+public final class IdentityDtos { private IdentityDtos(){}
+ public record RegisterRequest(@NotBlank @Email @Size(max=320) String email,@NotBlank @Size(min=12,max=128) String password,@NotBlank @Size(max=100) String givenName,@NotBlank @Size(max=100) String familyName,@AssertTrue boolean termsAccepted,@AssertTrue boolean privacyAcknowledged){}
+ public record VerifyRequest(@NotBlank String token){} public record ResendRequest(@NotBlank @Email String email){} public record LoginRequest(@NotBlank @Email String email,@NotBlank String password){} public record RefreshRequest(@NotBlank String refreshToken){} public record ForgotRequest(@NotBlank @Email String email){} public record ResetRequest(@NotBlank String token,@NotBlank @Size(min=12,max=128) String newPassword){} public record ChangePasswordRequest(@NotBlank String currentPassword,@NotBlank @Size(min=12,max=128) String newPassword){}
+ public record UpdateAccountRequest(@NotBlank @Size(max=100) String givenName,@NotBlank @Size(max=100) String familyName){}
+ public record MessageResponse(String message){} public record RegistrationResponse(UUID userId,String email,String status){} public record TokenResponse(String accessToken,String refreshToken,String tokenType,long expiresIn){} public record AccountResponse(UUID userId,String email,boolean emailVerified,String givenName,String familyName,String status,Set<String> roles,Instant createdAt){} public record SessionResponse(UUID sessionId,Instant createdAt,Instant lastUsedAt,Instant expiresAt,boolean current,boolean revoked,String userAgent){}
+}

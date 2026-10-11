@@ -1,0 +1,1 @@
+package com.tarapickle.identity.domain.repository; import com.tarapickle.identity.domain.model.PasswordResetToken; import org.springframework.data.jpa.repository.JpaRepository; import java.util.*; public interface ResetTokenRepository extends JpaRepository<PasswordResetToken,UUID>{Optional<PasswordResetToken> findByTokenHash(String hash);}

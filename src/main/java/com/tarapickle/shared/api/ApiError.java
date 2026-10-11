@@ -1,0 +1,1 @@
+package com.tarapickle.shared.api; import java.time.*; import java.util.*; public record ApiError(String type,String title,int status,String code,String detail,String instance,String traceId,List<ApiErrorDetail> errors,Instant timestamp){}

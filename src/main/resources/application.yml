@@ -1,0 +1,24 @@
+spring:
+  application.name: pickletayo
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tarapickle}
+    username: ${DB_USER:tarapickle}
+    password: ${DB_PASSWORD:tarapickle_local}
+  jpa:
+    open-in-view: false
+    hibernate.ddl-auto: validate
+    properties.hibernate.jdbc.time_zone: UTC
+  flyway.enabled: true
+springdoc:
+  api-docs.version: openapi_3_1
+  swagger-ui.enabled: ${SWAGGER_ENABLED:true}
+management.endpoints.web.exposure.include: health,info
+management.endpoint.health.probes.enabled: true
+tarapickle:
+  jwt:
+    issuer: ${JWT_ISSUER:https://api.pickletayo.ph}
+    audience: ${JWT_AUDIENCE:pickletayo-api}
+    secret: ${PICKLETAYO_JWT_SECRET:${TARAPICKLE_JWT_SECRET:local-development-secret-change-this-now}}
+    access-ttl: PT15M
+    refresh-ttl: P30D
+  cors.allowed-origins: ${PICKLETAYO_CORS_ORIGINS:${TARAPICKLE_CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3005}}

@@ -1,0 +1,8 @@
+.env
+application-local-secrets.properties
+frontend/.env.local
+frontend/.next/
+frontend/node_modules/
+frontend/src/generated/prisma/
+target/
+.tools/
