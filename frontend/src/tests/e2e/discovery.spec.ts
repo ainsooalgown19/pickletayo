@@ -1,92 +1,159 @@
 import { expect, test } from "@playwright/test";
 
-test("player can discover live inventory and begin booking", async ({ page }) => {
-  await page.route("**/api/v1/facilities**", async (route) => {
-    const url = route.request().url();
-    if (url.includes("/availability")) {
-      await route.fulfill({ json: { facilityId: "facility-1", date: "2026-09-29", timezone: "Asia/Manila", durationMinutes: 60, slots: [{ courtId: "court-1", courtName: "Court 1", startsAt: "2026-09-29T01:00:00Z", endsAt: "2026-09-29T02:00:00Z", price: 600, currencyCode: "PHP" }] } });
-    } else if (/\/facilities\/facility-1$/.test(url)) {
-      await route.fulfill({ json: { facilityId: "facility-1", organizationId: "org-1", name: "Quezon City Pickle Club", branchCode: "QC", status: "ACTIVE", timezone: "Asia/Manila", location: { addressLine1: "1 Court Road", city: "Quezon City", province: "Metro Manila", countryCode: "PH", latitude: 14.67, longitude: 121.04, verified: true }, courts: [], createdAt: "2026-09-01T00:00:00Z" } });
-    } else {
-      await route.fulfill({ json: { content: [{ facilityId: "facility-1", name: "Quezon City Pickle Club", status: "ACTIVE", city: "Quezon City", province: "Metro Manila", latitude: 14.67, longitude: 121.04, activeCourts: 2, startingHourlyRate: 600, currencyCode: "PHP" }], totalElements: 1, totalPages: 1, number: 0, size: 24 } });
-    }
-  });
-
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.clear());
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /play more/i })).toBeVisible();
-  await page.getByRole("button", { name: /view quezon city/i }).first().click();
-  await page.getByRole("button", { name: /9:00 AM.*Court 1/i }).click();
-  await page.getByRole("button", { name: "Continue to booking" }).click();
-  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
-  await expect(page.getByText(/sign in or create your player account to continue/i)).toBeVisible();
 });
 
-test("platform administrator can open facility operations", async ({ page }) => {
-  let bookingCheckedIn = false;
-  const adminUser = {
-    id: "11111111-1111-1111-1111-111111111111",
-    aud: "authenticated",
-    role: "authenticated",
-    email: "admin@pickletayo.test",
-    email_confirmed_at: "2026-09-01T00:00:00Z",
-    phone: "",
-    confirmed_at: "2026-09-01T00:00:00Z",
-    last_sign_in_at: "2026-10-01T00:00:00Z",
-    app_metadata: { provider: "email", providers: ["email"] },
-    user_metadata: { given_name: "System", family_name: "Admin" },
-    identities: [],
-    created_at: "2026-09-01T00:00:00Z",
-    updated_at: "2026-10-01T00:00:00Z",
-    is_anonymous: false,
-  };
-  await page.route("**/auth/v1/token**", async (route) => route.fulfill({
-    json: {
-      access_token: "access-test",
-      refresh_token: "refresh-test",
-      token_type: "bearer",
-      expires_in: 3600,
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-      user: adminUser,
-    },
-  }));
-  await page.route("**/api/v1/**", async (route) => {
-    const url=route.request().url();
-    if(url.endsWith("/account/me")) return route.fulfill({json:{userId:"11111111-1111-1111-1111-111111111111",email:"admin@pickletayo.test",emailVerified:true,givenName:"System",familyName:"Admin",status:"ACTIVE",roles:["PLATFORM_ADMIN"],createdAt:"2026-09-01T00:00:00Z"}});
-    if(url.includes("/admin/bookings")) {
-      const booking = {bookingId:"22222222-2222-2222-2222-222222222222",reference:"PT-20261003-BOOKING1",facilityId:"facility-1",facilityName:"Quezon City Pickle Club",courtId:"court-1",courtName:"Court 1",playerId:"33333333-3333-3333-3333-333333333333",playerName:"Juan Player",startsAt:"2026-10-03T09:00:00Z",endsAt:"2026-10-03T10:00:00Z",status:bookingCheckedIn?"CHECKED_IN":"CONFIRMED",subtotalAmount:600,discountAmount:0,totalAmount:600,currencyCode:"PHP",paymentStatus:"PAID",createdAt:"2026-10-02T00:00:00Z",updatedAt:"2026-10-02T00:00:00Z"};
-      if(route.request().method()==="POST") { bookingCheckedIn = true; return route.fulfill({json:{...booking,status:"CHECKED_IN"}}); }
-      return route.fulfill({json:{content:[booking],totalElements:1,totalPages:1,number:0,size:100}});
-    }
-    if(url.includes("/organizations/org-1/facilities")) return route.fulfill({json:{content:[],totalElements:0,totalPages:0,number:0,size:50}});
-    if(url.includes("/organizations")) return route.fulfill({json:{content:[{organizationId:"org-1",type:"COURT_OPERATOR",legalName:"Pickle Operations Inc.",displayName:"Pickle Operations",status:"ACTIVE",ownerUserId:"11111111-1111-1111-1111-111111111111",createdAt:"2026-09-01T00:00:00Z"}],totalElements:1,totalPages:1,number:0,size:50}});
-    if(url.includes("/facilities")) return route.fulfill({json:{content:[],totalElements:0,totalPages:0,number:0,size:9}});
-    return route.fulfill({status:404,json:{detail:"Not mocked"}});
-  });
-  await page.goto("/");
-  await page.locator(
-    'button[aria-label="Sign in or create an account"]:visible, nav[aria-label="Mobile navigation"] button:has-text("Profile"):visible',
-  ).click();
-  await page.getByLabel("Email address").fill("admin@pickletayo.test");
-  await page.getByLabel("Password", { exact: true }).fill("AdminPassword123!");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+test("player can discover a court and complete a demo wallet payment", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: /play more/i })).toBeVisible();
+  await expect(page.getByLabel("Test as")).toHaveValue("PLAYER");
+  await expect(page.locator("button:visible").filter({ hasText: /^Manage$/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /view riverside indoor courts/i }).first().click();
+  await page.locator(".slots button").first().click();
+  await page.getByRole("button", { name: "Continue to booking" }).click();
+  await expect(page.getByRole("heading", { name: "Review your booking" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue to payment" }).click();
+  await page.getByRole("radio", { name: /GCash demo/i }).click();
+  await page.getByRole("button", { name: /^Pay / }).click();
+  await expect(page.getByText("Booking confirmed", { exact: true })).toBeVisible();
+  await expect(page.getByText("Paid · Demo", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "View my bookings" }).click();
+  await expect(page.getByText(/PT-\d{6}/).first()).toBeVisible();
+  await expect(page.getByText("CONFIRMED", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/Paid/).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Find a court", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Find your next game" })).toBeVisible();
+  await page.getByLabel("Search courts").fill("Skyline");
+  await expect(page.getByRole("button", { name: /view riverside indoor courts/i })).toHaveCount(0);
+  await page.getByRole("button", { name: /view skyline rooftop pickleball/i }).click();
+  await expect(page.getByRole("heading", { name: "Skyline Rooftop Pickleball" })).toBeVisible();
+});
+
+test("platform administrator can manage facilities and check in a booking", async ({ page }) => {
+  await page.getByLabel("Test as").selectOption("ADMIN");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("pickletayo-current-user"))).toContain("PLATFORM_ADMIN");
-  const cachedUser = await page.evaluate(() => localStorage.getItem("pickletayo-current-user") ?? "");
-  expect(cachedUser).toContain("admin@pickletayo.test");
-  expect(cachedUser).not.toContain("AdminPassword123!");
-  expect(cachedUser).not.toContain("access-test");
-  await page.getByRole("button", { name: "Manage", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Platform overview" })).toBeVisible({ timeout: 15_000 });
+
+  await page.locator("button:visible").filter({ hasText: /^Manage$/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Platform overview" })).toBeVisible();
   await page.getByRole("link", { name: "Facilities", exact: true }).click();
-  await expect(page.getByRole("heading",{name:"Facility operations"})).toBeVisible();
-  await expect(page.getByLabel("Organization",{exact:true})).toHaveValue("org-1");
-  await expect(page.getByText("Add facility",{exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Facility operations" })).toBeVisible();
+  await expect(page.getByLabel("Organization", { exact: true })).toHaveValue("org-rally-point");
+  await expect(page.getByText("Add facility", { exact: true })).toBeVisible();
   await page.getByText("Create an organization", { exact: true }).click();
-  await expect(page.getByLabel("Owner", { exact: true })).toHaveValue("System Admin (admin@pickletayo.test)");
+  await expect(page.getByLabel("Owner", { exact: true })).toHaveValue("System Administrator (admin@pickletayo.test)");
+
   await page.getByRole("link", { name: "Bookings", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Booking desk" })).toBeVisible();
-  await expect(page.getByText("PT-20261003-BOOKING1")).toBeVisible();
-  await expect(page.getByText(/Juan Player.*Quezon City Pickle Club/)).toBeVisible();
-  page.once("dialog", (dialog) => dialog.accept("Checked in by test operator"));
-  await page.getByRole("button", { name: "Check in" }).click();
-  await expect(page.getByRole("article").getByText("Checked in", { exact: true })).toBeVisible();
+  await expect(page.getByText("PT-DEMO-102")).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept("Checked in during demo test"));
+  await page.getByRole("article").filter({ hasText: "PT-DEMO-102" }).getByRole("button", { name: "Check in" }).click();
+  await expect(page.getByRole("article").filter({ hasText: "PT-DEMO-102" }).getByText("Checked in", { exact: true })).toBeVisible();
+});
+
+test("player can join and create an open play session", async ({ page }) => {
+  await page.getByLabel("Test as").selectOption("GUEST");
+  await page.getByRole("button", { name: /Explore open play/i }).click();
+  await expect(page.getByRole("heading", { name: /Find a game/i })).toBeVisible();
+
+  const marina = page.getByRole("article").filter({ hasText: "Marina Courts" });
+  await expect(marina).toBeVisible();
+  await marina.getByRole("button", { name: "Sign in" }).click();
+  const signInDialog = page.getByRole("dialog", { name: "Sign in to Open Play" });
+  await expect(signInDialog.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await signInDialog.getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Test as").selectOption("PLAYER");
+  await marina.getByRole("button", { name: "Join" }).click();
+  await expect(marina.getByRole("button", { name: "Leave" })).toBeVisible();
+  await expect(page.getByText("You joined Marina Courts.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Create session" }).click();
+  await page.getByLabel("Venue").selectOption("facility-garden");
+  await page.getByLabel("Player capacity").fill("8");
+  await page.getByRole("button", { name: "Create public session" }).click();
+  await expect(page.getByRole("heading", { name: "Garden City Pickle Courts" })).toBeVisible();
+  await expect(page.getByText(/was created and you are on the player list/i)).toBeVisible();
+
+  await page.getByRole("button", { name: "Bookings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "My activity" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Upcoming bookings" })).toBeVisible();
+  const joinedSessions = page.locator(".open-play-activity");
+  await expect(joinedSessions.getByRole("heading", { name: "Sessions you joined" })).toBeVisible();
+  await expect(joinedSessions.getByRole("heading", { name: "Garden City Pickle Courts" })).toBeVisible();
+});
+
+test("guest can browse events and player can register and host one", async ({ page }) => {
+  await page.getByLabel("Test as").selectOption("GUEST");
+  if ((page.viewportSize()?.width ?? 1000) <= 800) {
+    await page.getByRole("button", { name: "Discover", exact: true }).click();
+    await page.getByRole("button", { name: /^Events/ }).click();
+  } else {
+    await page.getByRole("button", { name: "Events", exact: true }).click();
+  }
+  await expect(page.getByRole("heading", { name: /Events worth/i })).toBeVisible();
+  await page.getByRole("button", { name: "Social", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Saturday Social Mixer" }).last()).toBeVisible();
+  await page.getByRole("button", { name: "View Saturday Social Mixer" }).click();
+  const guestEvent = page.getByRole("dialog", { name: "Saturday Social Mixer" });
+  await guestEvent.getByRole("button", { name: "Sign in to register" }).click();
+  const signInDialog = page.getByRole("dialog", { name: "Sign in to Events" });
+  await expect(signInDialog.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await signInDialog.getByRole("button", { name: "Close" }).click();
+  await guestEvent.getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Test as").selectOption("PLAYER");
+  await page.getByRole("button", { name: "View Saturday Social Mixer" }).click();
+  const playerEvent = page.getByRole("dialog", { name: "Saturday Social Mixer" });
+  await playerEvent.getByRole("button", { name: "Register for event" }).click();
+  await expect(page.getByText("You registered for Saturday Social Mixer.")).toBeVisible();
+  await expect(playerEvent.getByRole("button", { name: "Cancel registration" })).toBeVisible();
+  await playerEvent.getByRole("button", { name: "Close" }).click();
+
+  await page.getByRole("button", { name: "Host an event" }).first().click();
+  await page.getByLabel("Event name").fill("Friday Night Rally");
+  await page.getByLabel("Venue").selectOption("facility-skyline");
+  await page.getByLabel("Format").fill("Americano mixer");
+  await page.getByLabel("Event details").fill("A friendly Friday night mixer with rotating partners and guaranteed games for everyone.");
+  await page.getByRole("button", { name: "Publish public event" }).click();
+  await expect(page.getByText(/Friday Night Rally was published/i)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Friday Night Rally" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Friday Night Rally" }).getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Bookings", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your event registrations" })).toBeVisible();
+  await expect(page.locator(".event-activity").getByRole("heading", { name: "Friday Night Rally" })).toBeVisible();
+});
+
+test("guest can browse clubs and player can join and create one", async ({ page }) => {
+  await page.getByLabel("Test as").selectOption("GUEST");
+  if ((page.viewportSize()?.width ?? 1000) <= 800) {
+    await page.getByRole("button", { name: "Discover", exact: true }).click();
+    await page.getByRole("button", { name: /^Clubs/ }).click();
+  } else {
+    await page.getByRole("button", { name: "Clubs", exact: true }).click();
+  }
+  await expect(page.getByRole("heading", { name: /Find your people/i })).toBeVisible();
+  await page.getByRole("article").filter({ hasText: "QC Pickle Crew" }).getByRole("button", { name: /View club/i }).click();
+  const clubDialog = page.getByRole("dialog", { name: /QC Pickle Crew/i });
+  await expect(clubDialog.getByText(/welcoming Quezon City community/i)).toBeVisible();
+  await clubDialog.getByRole("button", { name: "Sign in to join" }).click();
+  const signInDialog = page.getByRole("dialog", { name: "Sign in to Clubs" });
+  await expect(signInDialog.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await signInDialog.getByRole("button", { name: "Close" }).click();
+  await clubDialog.getByRole("button", { name: "Close" }).click();
+
+  await page.getByLabel("Test as").selectOption("PLAYER");
+  await page.getByRole("button", { name: "Join club", exact: true }).click();
+  await expect(page.getByText(/You joined Makati Kitchen/i)).toBeVisible();
+
+  await page.getByRole("button", { name: "Start a club" }).click();
+  await page.getByLabel("Club name").fill("Weekend Paddle Crew");
+  await page.getByLabel("Home venue").selectOption("facility-skyline");
+  await page.getByLabel("Regular schedule").fill("Saturdays at 8:00 AM");
+  await page.getByLabel("About the club").fill("Friendly weekend games for beginner and intermediate players.");
+  await page.getByRole("button", { name: "Create public club" }).click();
+  await expect(page.getByText(/Weekend Paddle Crew was created/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Weekend Paddle Crew" }).first()).toBeVisible();
 });

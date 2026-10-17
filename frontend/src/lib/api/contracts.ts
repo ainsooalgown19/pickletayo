@@ -110,6 +110,51 @@ export type AdminBooking = Booking & {
   updatedAt: string;
 };
 
+export type OpenPlaySession = {
+  sessionId: string;
+  venue: string;
+  area: string;
+  startsAt: string;
+  level: "BEGINNER" | "INTERMEDIATE" | "ALL_LEVELS";
+  players: number;
+  capacity: number;
+  spotsRemaining: number;
+  joined: boolean;
+};
+
+export type Club = {
+  clubId: string;
+  initials: string;
+  name: string;
+  area: string;
+  members: number;
+  schedule: string;
+  description: string;
+  verified: boolean;
+  joined: boolean;
+  createdAt: string;
+};
+
+export type CommunityEvent = {
+  eventId: string;
+  title: string;
+  venue: string;
+  area: string;
+  startsAt: string;
+  endsAt: string;
+  category: "SOCIAL" | "TOURNAMENT";
+  format: string;
+  level: "BEGINNER" | "INTERMEDIATE" | "ALL_LEVELS";
+  description: string;
+  price: number;
+  currencyCode: string;
+  registrations: number;
+  capacity: number;
+  spotsRemaining: number;
+  registered: boolean;
+  createdAt: string;
+};
+
 export function money(amount: number, currencyCode = "PHP") {
   return new Intl.NumberFormat("en-PH", {
     style: "currency",

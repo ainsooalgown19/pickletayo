@@ -8,6 +8,10 @@ export class ApiError extends Error {
 const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/v1";
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true" && typeof window !== "undefined") {
+    const { demoRequest } = await import("@/demo/demo-api");
+    return demoRequest<T>(path, init);
+  }
   const response = await fetch(`${baseUrl}${path}`, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...init?.headers } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({})) as { message?: string; detail?: string; reference?: string; traceId?: string };

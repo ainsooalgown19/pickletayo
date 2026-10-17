@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
+  ArrowLeft,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
   Clock3,
   Compass,
+  CreditCard,
   Heart,
   Home,
   LocateFixed,
@@ -19,9 +21,11 @@ import {
   Moon,
   Search,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Sun,
+  WalletCards,
   Trophy,
   UserRound,
   UsersRound,
@@ -37,13 +41,16 @@ import { ApiError, apiRequest } from "@/lib/api/client";
 import {
   type AvailabilitySlot,
   type Booking,
+  type CommunityEvent,
   type FacilityAvailability,
   type FacilityDetail,
   type FacilitySummary,
+  type OpenPlaySession,
   type Page,
   localDate,
   money,
 } from "@/lib/api/contracts";
+import { demoMode } from "@/demo/demo-api";
 
 const facilityArtwork = [
   { tone: "mint", image: "/courts/riverside-indoor.png" },
@@ -84,8 +91,10 @@ export function PlayerExperience() {
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [bookingDate, setBookingDate] = useState(localDate());
   const [booking, setBooking] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState<"review" | "payment">("review");
+  const [paymentMethod, setPaymentMethod] = useState<"PAY_AT_VENUE" | "GCASH_DEMO" | "CARD_DEMO">("PAY_AT_VENUE");
   const [authOpen, setAuthOpen] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
+  const [completedBooking, setCompletedBooking] = useState<{ booking: Booking; facilityName: string; paymentMethod: "PAY_AT_VENUE" | "GCASH_DEMO" | "CARD_DEMO" } | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const { theme, setTheme } = usePreferences();
   const auth = useAuth();
@@ -111,14 +120,14 @@ export function PlayerExperience() {
       return auth.request<Booking>("/bookings/holds", {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ courtId: slot.courtId, startsAt: slot.startsAt, endsAt: slot.endsAt }),
+        body: JSON.stringify({ courtId: slot.courtId, startsAt: slot.startsAt, endsAt: slot.endsAt, paymentMethod: demoMode ? paymentMethod : "PAY_AT_VENUE" }),
       });
     },
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["bookings"] });
+      if (selected) setCompletedBooking({ booking: created, facilityName: selected.name, paymentMethod });
       setBooking(false);
       setSelected(null);
-      setConfirmed(true);
       track("booking_hold_created", { bookingId: created.bookingId, facilityId: created.facilityId });
     },
     onError: () => queryClient.invalidateQueries({ queryKey: ["availability", selected?.facilityId] }),
@@ -158,10 +167,11 @@ export function PlayerExperience() {
         </button>
         <nav className="desktop-nav" aria-label="Primary">
           <button className={activeTab === "home" || activeTab === "discover" ? "active" : ""} onClick={() => setActiveTab("home")}>Discover</button>
+          <button className={activeTab === "bookings" ? "active" : ""} onClick={() => setActiveTab("bookings")}>Bookings</button>
           <button className={activeTab === "open-play" ? "active" : ""} onClick={() => setActiveTab("open-play")}>Open Play</button>
           <button className={activeTab === "events" ? "active" : ""} onClick={() => setActiveTab("events")}>Events</button>
           <button className={activeTab === "clubs" ? "active" : ""} onClick={() => setActiveTab("clubs")}>Clubs</button>
-          <button className={activeTab === "manage" ? "active" : ""} onClick={() => setActiveTab("manage")}>Manage</button>
+          {canManage && <button className={activeTab === "manage" ? "active" : ""} onClick={() => router.push("/admin")}>Manage</button>}
         </nav>
         <div className="header-actions">
           <button className="icon-button" aria-label="Notifications">
@@ -369,6 +379,7 @@ export function PlayerExperience() {
           <CommunityPages
             page={activeTab}
             canManage={canManage}
+            facilities={facilitiesQuery.data?.content ?? []}
             onDiscover={() => setActiveTab("home")}
             onOpenAdmin={() => canManage ? router.push("/admin") : setActiveTab("profile")}
           />
@@ -378,10 +389,7 @@ export function PlayerExperience() {
             facilities={shown}
             facilitiesLoading={facilitiesQuery.isLoading}
             onDiscover={() => setActiveTab("discover")}
-            onBook={() => {
-              setActiveTab("discover");
-              window.scrollTo({ top: 0 });
-            }}
+            onSelectFacility={chooseFacility}
             onCommunityPage={(page) => setActiveTab(page)}
           />
         )}
@@ -420,7 +428,7 @@ export function PlayerExperience() {
           <UserRound />
           Profile
         </button>
-        {canManage && <button className={activeTab === "manage" ? "active" : ""} aria-current={activeTab === "manage" ? "page" : undefined} onClick={() => setActiveTab("manage")}><Settings />Manage</button>}
+        {canManage && <button className={activeTab === "manage" ? "active" : ""} aria-current={activeTab === "manage" ? "page" : undefined} onClick={() => router.push("/admin")}><Settings />Manage</button>}
       </nav>
 
       {selected && (
@@ -491,7 +499,7 @@ export function PlayerExperience() {
               className="primary book-button"
               disabled={!slot}
               onClick={() => {
-                if (account) setBooking(true);
+                if (account) { setCheckoutStep("review"); setBooking(true); }
                 else setAuthOpen(true);
                 track("booking_started", { facilityId: selected.facilityId });
               }}
@@ -517,8 +525,13 @@ export function PlayerExperience() {
             >
               <X />
             </button>
-            <span className="kicker">SECURE CHECKOUT</span>
-            <h2 id="checkout-title">Review your booking</h2>
+            <div className="checkout-steps" aria-label="Booking progress">
+              <span className={checkoutStep === "review" ? "active" : "done"}><b>1</b> Review</span>
+              <i />
+              <span className={checkoutStep === "payment" ? "active" : ""}><b>2</b> Payment</span>
+            </div>
+            <span className="kicker">PLAYER CHECKOUT</span>
+            <h2 id="checkout-title">{checkoutStep === "review" ? "Review your booking" : "Choose how to pay"}</h2>
             <div className="booking-summary">
               <strong>{selected.name}</strong>
               <span>{slot ? `${dateLabel(slot.startsAt)} · ${timeLabel(slot.startsAt)}` : "Select a time"}</span>
@@ -534,27 +547,35 @@ export function PlayerExperience() {
                 <dd>{slot ? money(slot.price, slot.currencyCode) : "—"}</dd>
               </div>
             </dl>
-            <p className="secure-note">
-              This creates a 10-minute court hold. Online payment is not enabled yet; the hold will expire automatically if it is not completed.
-            </p>
-            {holdMutation.isError && <p className="inline-error" role="alert">{holdMutation.error instanceof Error ? holdMutation.error.message : "The court could not be held."}</p>}
-            <button className="primary book-button" disabled={holdMutation.isPending} onClick={() => holdMutation.mutate()}>
-              {holdMutation.isPending ? "Holding court…" : "Hold court for 10 minutes"}
-            </button>
+            {checkoutStep === "review" ? <>
+              <p className="secure-note">You can review the payment method before confirming. Nothing is charged on this step.</p>
+              <button className="primary book-button" onClick={() => setCheckoutStep("payment")}>Continue to payment</button>
+            </> : <>
+              <div className="payment-methods" role="radiogroup" aria-label="Payment method">
+                <button className={paymentMethod === "PAY_AT_VENUE" ? "selected" : ""} role="radio" aria-checked={paymentMethod === "PAY_AT_VENUE"} onClick={() => setPaymentMethod("PAY_AT_VENUE")}><WalletCards/><span><strong>Pay at the venue</strong><small>Reserve now and pay when you arrive</small></span><i /></button>
+                {demoMode && <button className={paymentMethod === "GCASH_DEMO" ? "selected" : ""} role="radio" aria-checked={paymentMethod === "GCASH_DEMO"} onClick={() => setPaymentMethod("GCASH_DEMO")}><span className="payment-brand">G</span><span><strong>GCash demo</strong><small>Simulate an instant wallet payment</small></span><i /></button>}
+                {demoMode && <button className={paymentMethod === "CARD_DEMO" ? "selected" : ""} role="radio" aria-checked={paymentMethod === "CARD_DEMO"} onClick={() => setPaymentMethod("CARD_DEMO")}><CreditCard/><span><strong>Card demo</strong><small>Simulate Visa or Mastercard payment</small></span><i /></button>}
+              </div>
+              <p className="secure-note payment-demo-note"><ShieldCheck/> {demoMode ? "Demo payment only—no real money or payment details are used." : "Online payment is not enabled. Choose pay at the venue to continue."}</p>
+              {holdMutation.isError && <p className="inline-error" role="alert">{holdMutation.error instanceof Error ? holdMutation.error.message : "The booking could not be confirmed."}</p>}
+              <div className="checkout-actions"><button className="checkout-back" onClick={() => setCheckoutStep("review")}><ArrowLeft/> Back</button><button className="primary" disabled={holdMutation.isPending} onClick={() => holdMutation.mutate()}>{holdMutation.isPending ? "Processing…" : paymentMethod === "PAY_AT_VENUE" ? "Confirm booking" : `Pay ${slot ? money(slot.price, slot.currencyCode) : ""}`}</button></div>
+            </>}
           </section>
         </div>
       )}
 
-      {confirmed && (
-        <div className="toast" role="status">
-          <span>✓</span>
-          <div>
-            <strong>Court held for 10 minutes</strong>
-            <p>Your hold is now visible in Bookings. Payment integration comes next.</p>
-          </div>
-          <button onClick={() => setConfirmed(false)} aria-label="Dismiss">
-            <X size={16} />
-          </button>
+      {completedBooking && (
+        <div className="overlay confirmation-overlay">
+          <section className="modal booking-confirmation" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+            <span className="confirmation-check"><CheckCircle2/></span>
+            <span className="kicker">RESERVATION COMPLETE</span>
+            <h2 id="confirmation-title">Booking confirmed</h2>
+            <p>Your court is ready. We’ve added this reservation to your bookings.</p>
+            <div className="confirmation-reference"><small>BOOKING REFERENCE</small><strong>{completedBooking.booking.reference}</strong></div>
+            <dl><div><dt>Venue</dt><dd>{completedBooking.facilityName}</dd></div><div><dt>Schedule</dt><dd>{dateLabel(completedBooking.booking.startsAt)} · {timeLabel(completedBooking.booking.startsAt)}</dd></div><div><dt>Payment</dt><dd>{completedBooking.booking.paymentStatus === "PAID" ? "Paid · Demo" : "Pay at venue"}</dd></div><div className="total"><dt>Total</dt><dd>{money(completedBooking.booking.totalAmount, completedBooking.booking.currencyCode)}</dd></div></dl>
+            <button className="primary book-button" onClick={() => { setCompletedBooking(null); setActiveTab("bookings"); }}>View my bookings</button>
+            <button className="confirmation-secondary" onClick={() => setCompletedBooking(null)}>Book another court</button>
+          </section>
         </div>
       )}
 
@@ -581,17 +602,18 @@ function StaticTab({
   facilities,
   facilitiesLoading,
   onDiscover,
-  onBook,
+  onSelectFacility,
   onCommunityPage,
 }: {
   tab: "discover" | "bookings" | "profile";
   facilities: FacilitySummary[];
   facilitiesLoading: boolean;
   onDiscover: () => void;
-  onBook: () => void;
+  onSelectFacility: (facility: FacilitySummary) => void;
   onCommunityPage: (page: Exclude<CommunityPage, "manage">) => void;
 }) {
   const auth = useAuth();
+  const [discoverQuery, setDiscoverQuery] = useState("");
   const [now,setNow]=useState(Date.now());
   useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),1000);return()=>window.clearInterval(timer);},[]);
   const queryClient = useQueryClient();
@@ -601,10 +623,33 @@ function StaticTab({
     enabled: tab === "bookings" && Boolean(auth.account),
     refetchInterval: tab === "bookings" ? 30_000 : false,
   });
+  const openPlayQuery = useQuery({
+    queryKey: ["open-play", "player-activity", auth.account?.userId],
+    queryFn: () => apiRequest<Page<OpenPlaySession>>("/open-play?range=WEEK&level="),
+    enabled: tab === "bookings" && Boolean(auth.account),
+  });
+  const eventsQuery = useQuery({
+    queryKey: ["events", "player-activity", auth.account?.userId],
+    queryFn: () => apiRequest<Page<CommunityEvent>>("/events?category=&date="),
+    enabled: tab === "bookings" && Boolean(auth.account),
+  });
   const cancelMutation = useMutation({
     mutationFn: (bookingId: string) => auth.request<Booking>(`/bookings/${bookingId}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bookings"] }),
   });
+  const leaveOpenPlay = useMutation({
+    mutationFn: (sessionId: string) => auth.request<OpenPlaySession>(`/open-play/${sessionId}/join`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["open-play"] }),
+  });
+  const cancelEventRegistration = useMutation({
+    mutationFn: (eventId: string) => auth.request<CommunityEvent>(`/events/${eventId}/register`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["events"] }),
+  });
+  const discoverResults = useMemo(() => {
+    const normalized = discoverQuery.trim().toLowerCase();
+    if (!normalized) return facilities;
+    return facilities.filter((facility) => `${facility.name} ${facility.city} ${facility.province}`.toLowerCase().includes(normalized));
+  }, [discoverQuery, facilities]);
   if (tab === "discover")
     return (
       <section className="static-screen">
@@ -613,13 +658,14 @@ function StaticTab({
           <h1>Find your next game</h1>
           <p>Browse courts, open play sessions, clubs, and events near you.</p>
         </div>
-        <div className="static-search">
+        <form className="static-search" onSubmit={(event) => event.preventDefault()}>
           <Search size={19} />
-          <span>Search courts and activities</span>
-          <SlidersHorizontal size={18} />
-        </div>
+          <label className="sr-only" htmlFor="discover-court-search">Search courts</label>
+          <input id="discover-court-search" value={discoverQuery} onChange={(event) => setDiscoverQuery(event.target.value)} placeholder="Search venue, city, or province" autoFocus />
+          {discoverQuery && <button type="button" onClick={() => setDiscoverQuery("")} aria-label="Clear court search"><X size={17}/></button>}
+        </form>
         <div className="category-grid">
-          <button onClick={onBook}>
+          <button onClick={() => setDiscoverQuery("")}>
             <span>
               <MapPin />
             </span>
@@ -653,11 +699,11 @@ function StaticTab({
             <span className="kicker">TRENDING</span>
             <h2>Popular near you</h2>
           </div>
-          <button>See all</button>
+          <button onClick={() => setDiscoverQuery("")}>See all</button>
         </div>
-        <div className="compact-list">
-          {facilities.map((facility) => (
-            <button className="compact-row" key={facility.facilityId} onClick={onBook}>
+        {discoverResults.length ? <div className="compact-list">
+          {discoverResults.map((facility) => (
+            <button className="compact-row" key={facility.facilityId} onClick={() => onSelectFacility(facility)} aria-label={`View ${facility.name}`}>
                 <span className="compact-art" data-tone={artwork(facility.facilityId).tone}>
                   <Image src={artwork(facility.facilityId).image} alt="" fill sizes="64px" />
                 </span>
@@ -675,29 +721,43 @@ function StaticTab({
               <ChevronRight />
             </button>
           ))}
-        </div>
+        </div> : <div className="empty compact-empty"><Search/><h3>No courts found</h3><p>Try another venue, city, or province.</p><button onClick={() => setDiscoverQuery("")}>Clear search</button></div>}
       </section>
     );
 
   if (tab === "bookings")
-    return (
-      <section className="static-screen">
-        <div className="mobile-page-head">
-          <span className="kicker">YOUR SCHEDULE</span>
-          <h1>Bookings</h1>
-          <p>Everything you need for your next time on court.</p>
+    {
+      const bookings = bookingsQuery.data?.content ?? [];
+      const activeBookings = bookings.filter((item) => !["CANCELLED", "EXPIRED", "COMPLETED", "NO_SHOW"].includes(item.status));
+      const joinedSessions = (openPlayQuery.data?.content ?? []).filter((session) => session.joined);
+      const registeredEvents = (eventsQuery.data?.content ?? []).filter((event) => event.registered);
+      const paidAmount = bookings.filter((item) => item.paymentStatus === "PAID").reduce((sum, item) => sum + item.totalAmount, 0);
+      return (
+      <section className="static-screen player-activity-page">
+        <div className="activity-head">
+          <div><span className="kicker">PLAYER DASHBOARD</span><h1>My activity</h1><p>Track your court rentals, payments, and Open Play sessions in one place.</p></div>
+          <button className="primary" onClick={onDiscover}><Search/> Find a court</button>
         </div>
         {auth.status === "loading" ? (
           <div className="auth-loading">Loading your account…</div>
         ) : !auth.account ? (
           <AuthPanel reason="Sign in to see your court holds and bookings." />
-        ) : bookingsQuery.isLoading ? (
+        ) : <>
+          <div className="activity-metrics">
+            <article><span className="metric-icon green"><CalendarDays/></span><div><small>UPCOMING RENTALS</small><strong>{activeBookings.length}</strong><p>Court reservations</p></div></article>
+            <article><span className="metric-icon blue"><UsersRound/></span><div><small>OPEN PLAY</small><strong>{joinedSessions.length}</strong><p>Sessions joined</p></div></article>
+            <article><span className="metric-icon violet"><Trophy/></span><div><small>EVENTS</small><strong>{registeredEvents.length}</strong><p>Registrations</p></div></article>
+            <article><span className="metric-icon amber"><WalletCards/></span><div><small>PAID ONLINE</small><strong>{money(paidAmount)}</strong><p>Demo payments</p></div></article>
+          </div>
+          <div className="player-activity-grid">
+            <section className="activity-panel"><header><div><span className="kicker">COURT RENTALS</span><h2>Upcoming bookings</h2></div><button onClick={onDiscover}>Book a court <ChevronRight/></button></header>
+        {bookingsQuery.isLoading ? (
           <div className="empty api-state" role="status"><Clock3 /><h3>Loading bookings</h3><p>Checking your latest reservations…</p></div>
         ) : bookingsQuery.isError ? (
           <div className="empty api-state" role="alert"><CalendarDays /><h3>Bookings unavailable</h3><p>{bookingsQuery.error instanceof Error ? bookingsQuery.error.message : "Could not load your bookings."}</p><button onClick={() => bookingsQuery.refetch()}>Try again</button></div>
-        ) : bookingsQuery.data?.content.length ? (
+        ) : bookings.length ? (
           <div className="booking-list">
-            {bookingsQuery.data.content.map((item) => {
+            {bookings.map((item) => {
               const starts = new Date(item.startsAt);
               const venue = facilities.find((facility) => facility.facilityId === item.facilityId);
               const cancellable = ["HOLD", "PENDING_PAYMENT", "CONFIRMED"].includes(item.status);
@@ -708,7 +768,7 @@ function StaticTab({
                     <span className="status-line"><CheckCircle2 size={15} /> {item.status.replaceAll("_", " ")}</span>
                     <h2>{venue?.name ?? `Booking ${item.reference}`}</h2>
                     <p>{dateLabel(item.startsAt)} · {timeLabel(item.startsAt)}–{timeLabel(item.endsAt)}</p>
-                    <small>{item.reference} · {money(item.totalAmount, item.currencyCode)}</small>
+                    <small>{item.reference} · {money(item.totalAmount, item.currencyCode)} · {item.paymentStatus === "PAID" ? "Paid" : "Pay at venue"}</small>
                     {item.holdExpiresAt && ["HOLD", "PENDING_PAYMENT"].includes(item.status) && <small className="hold-countdown">Hold remaining {remainingLabel(item.holdExpiresAt,now)}</small>}
                     {item.status === "HOLD" && <button className="payment-coming" disabled title="Payment provider integration is the next backend milestone">Continue to payment</button>}
                   </div>
@@ -721,18 +781,20 @@ function StaticTab({
         ) : (
           <div className="empty api-state"><CalendarDays /><h3>No bookings yet</h3><p>Your court holds and confirmed bookings will appear here.</p><button onClick={onDiscover}>Find a court</button></div>
         )}
-        <div className="static-promo">
-          <div>
-            <span className="kicker">KEEP PLAYING</span>
-            <h2>Ready for another game?</h2>
-            <p>Fresh court times are available near you.</p>
+            </section>
+            <section className="activity-panel open-play-activity"><header><div><span className="kicker">OPEN PLAY</span><h2>Sessions you joined</h2></div><button onClick={() => onCommunityPage("open-play")}>Find sessions <ChevronRight/></button></header>
+              {openPlayQuery.isLoading ? <div className="empty activity-empty"><Clock3/><h3>Loading sessions</h3></div> : joinedSessions.length ? <div className="activity-session-list">{joinedSessions.map((session) => <article key={session.sessionId}><span className="activity-session-date"><strong>{new Date(session.startsAt).getDate()}</strong><small>{new Date(session.startsAt).toLocaleDateString("en-PH", { month: "short", timeZone: "Asia/Manila" }).toUpperCase()}</small></span><div><span className="level-pill">{session.level.replaceAll("_", " ")}</span><h3>{session.venue}</h3><p><MapPin/>{session.area}</p><small>{dateLabel(session.startsAt)} · {timeLabel(session.startsAt)} · {session.players}/{session.capacity} players</small></div><button aria-label={`Leave ${session.venue}`} disabled={leaveOpenPlay.isPending} onClick={() => leaveOpenPlay.mutate(session.sessionId)}>Leave</button></article>)}</div> : <div className="empty activity-empty"><UsersRound/><h3>No joined sessions</h3><p>Join an Open Play and it will appear here.</p><button onClick={() => onCommunityPage("open-play")}>Explore Open Play</button></div>}
+              {leaveOpenPlay.isError && <p className="inline-error">{leaveOpenPlay.error.message}</p>}
+            </section>
+            <section className="activity-panel event-activity"><header><div><span className="kicker">EVENTS</span><h2>Your event registrations</h2></div><button onClick={() => onCommunityPage("events")}>Find events <ChevronRight/></button></header>
+              {eventsQuery.isLoading ? <div className="empty activity-empty"><Clock3/><h3>Loading events</h3></div> : registeredEvents.length ? <div className="activity-session-list activity-event-list">{registeredEvents.map((event) => <article key={event.eventId}><span className="activity-session-date"><strong>{new Date(event.startsAt).getDate()}</strong><small>{new Date(event.startsAt).toLocaleDateString("en-PH", { month: "short", timeZone: "Asia/Manila" }).toUpperCase()}</small></span><div><span className="level-pill">{event.category}</span><h3>{event.title}</h3><p><MapPin/>{event.venue} · {event.area}</p><small>{dateLabel(event.startsAt)} · {timeLabel(event.startsAt)} · {money(event.price, event.currencyCode)}</small></div><button aria-label={`Cancel registration for ${event.title}`} disabled={cancelEventRegistration.isPending} onClick={() => cancelEventRegistration.mutate(event.eventId)}>Cancel</button></article>)}</div> : <div className="empty activity-empty"><Trophy/><h3>No event registrations</h3><p>Register for an event and it will appear here.</p><button onClick={() => onCommunityPage("events")}>Explore events</button></div>}
+              {cancelEventRegistration.isError && <p className="inline-error">{cancelEventRegistration.error.message}</p>}
+            </section>
           </div>
-          <button className="primary" onClick={onDiscover}>
-            Find a court
-          </button>
-        </div>
+        </>}
       </section>
     );
+    }
 
   if (auth.status === "loading") return <section className="static-screen"><div className="auth-loading">Loading your account…</div></section>;
 
